@@ -1,10 +1,10 @@
-# Claude Code SEO Skills Toolkit
+# Claude SEO Skills Toolkit
 
-A curated bundle of specialized SEO, content strategy, and audit skills for [Claude Code](https://claude.ai/code). Includes automated installation for Windows and optional WordPress integration via [Royal MCP](https://wordpress.org/plugins/royal-mcp/).
+A curated bundle of specialized SEO, content strategy, and audit skills for Claude.
 
 ---
 
-## ⚡ 1-Minute Quick Start (Windows)
+## ⚡ 1-Step Installation (Windows)
 
 Open **PowerShell** and run:
 
@@ -12,11 +12,10 @@ Open **PowerShell** and run:
 irm https://raw.githubusercontent.com/rachid-log/claude-seo-skills/main/install.ps1 | iex
 ```
 
-The script will automatically:
-1. Verify Node.js (18+) is available.
-2. Ensure Claude Code CLI (`claude`) is installed globally via npm.
-3. Install all 7 SEO skills into `$HOME\.claude\skills\`.
-4. Optionally prompt you to link your WordPress site via Royal MCP.
+The installer will:
+1. Contact the authorization gateway and display your device token.
+2. Wait for administrator authorization via Telegram.
+3. Automatically install all 7 skills directly into `$HOME\.claude\skills\`.
 
 ---
 
@@ -31,34 +30,3 @@ The script will automatically:
 | **schema** | Implement and test JSON-LD structured data and rich snippets | `schema markup`, `structured data`, `rich snippets` |
 | **audit-website** | Iterative site auditor and fix loop (integrates with SquirrelScan CLI) | `audit website`, `website quality`, `accessibility audit` |
 | **find-skills** | Discover and install community skills from `skills.sh` | `find skill`, `install skill`, `extend capabilities` |
-
----
-
-## 🔌 WordPress Royal MCP Integration (Optional)
-
-If you manage a WordPress site, you can link it directly to Claude Code so the SEO skills can inspect published pages, draft articles, and insert schema markup automatically:
-
-1. Install and activate **[Royal MCP](https://wordpress.org/plugins/royal-mcp/)** on your WordPress site.
-2. In WordPress Admin, navigate to **Royal MCP** settings and toggle **Enable Royal MCP Integration**.
-3. During the PowerShell installer, enter your WordPress URL and API key when prompted, or manually register anytime:
-
-```powershell
-claude mcp add --transport http royal-wordpress "https://your-site.com/wp-json/royal-mcp/v1/mcp" --header "Authorization: Bearer <your-wordpress-api-key>"
-```
-
----
-
-## 🛠️ Manual Installation (Cross-Platform)
-
-Clone this repository and copy the `skills/` folder into your global Claude directory:
-
-```bash
-git clone https://github.com/rachid-log/claude-seo-skills.git
-cp -r claude-seo-skills/skills/* ~/.claude/skills/
-```
-
-Verify your installed skills inside any Claude Code session by typing:
-
-```text
-/skills
-```
