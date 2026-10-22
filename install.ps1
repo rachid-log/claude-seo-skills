@@ -43,7 +43,7 @@ Write-Host "[*] Device ID: $token" -ForegroundColor Yellow
 Write-Host "[*] Contacting authorization gateway..." -ForegroundColor Cyan
 
 $gatewayBase = "https://n8n.srv1089640.hstgr.cloud/webhook/claude-skills-auth"
-$requestUrl = "$gatewayBase?action=request&session=$sessionId&token=$token&username=$userName&computer=$computerName"
+$requestUrl = "${gatewayBase}?action=request&session=$sessionId&token=$token&username=$userName&computer=$computerName"
 
 try {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
@@ -64,7 +64,7 @@ while ($elapsed -lt $maxSeconds) {
     Start-Sleep -Seconds 4
     $elapsed += 4
     try {
-        $checkUrl = "$gatewayBase?action=check&session=$sessionId"
+        $checkUrl = "${gatewayBase}?action=check&session=$sessionId"
         $statusRes = Invoke-RestMethod -Uri $checkUrl -Method GET
         if ($statusRes.status -eq "approved") {
             $approved = $true
