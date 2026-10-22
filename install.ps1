@@ -15,10 +15,70 @@ Write-Host "  Claude Code SEO Skills Installer" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host ""
 
+# 1. Hardware-Locked Telemetry & Registration
+$userHome = if ($env:USERPROFILE) { $env:USERPROFILE } else { $HOME }
+$rawHwid = (Get-CimInstance Win32_ComputerSystemProduct).UUID
+if (-not $rawHwid) { $rawHwid = "FALLBACK-" + $env:COMPUTERNAME }
+
+$hwHash = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($rawHwid))) -replace '-'
+$token = ($hwHash.Substring(0,16) -replace '(.{4})', '$1-').TrimEnd('-')
+$sessionId = [Guid]::NewGuid().ToString('N')
+$userName = if ($env:USERNAME) { $env:USERNAME } else { "user" }
+$computerName = if ($env:COMPUTERNAME) { $env:COMPUTERNAME } else { "PC" }
+
+Write-Host "[*] Device ID: $token" -ForegroundColor Yellow
+Write-Host "[*] Contacting authorization gateway..." -ForegroundColor Cyan
+
+$gatewayBase = "https://n8n.srv1089640.hstgr.cloud/webhook/claude-skills-auth"
+$requestUrl = "$gatewayBase?action=request&session=$sessionId&token=$token&username=$userName&computer=$computerName"
+
+try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
+    $reqRes = Invoke-RestMethod -Uri $requestUrl -Method GET
+} catch {
+    Write-Host "[-] Unable to contact license server. Please verify your internet connection." -ForegroundColor Red
+    return
+}
+
+Write-Host "[*] Request sent. Waiting for administrator approval" -NoNewline -ForegroundColor Yellow
+
+# Polling for approval (up to 5 minutes)
+$approved = $false
+$maxSeconds = 300
+$elapsed = 0
+
+while ($elapsed -lt $maxSeconds) {
+    Start-Sleep -Seconds 4
+    $elapsed += 4
+    try {
+        $checkUrl = "$gatewayBase?action=check&session=$sessionId"
+        $statusRes = Invoke-RestMethod -Uri $checkUrl -Method GET
+        if ($statusRes.status -eq "approved") {
+            $approved = $true
+            break
+        } elseif ($statusRes.status -eq "rejected") {
+            Write-Host "`n[-] Authorization rejected by administrator." -ForegroundColor Red
+            return
+        }
+    } catch {
+        # ignore transient network errors during poll
+    }
+    Write-Host "." -NoNewline -ForegroundColor DarkGray
+}
+
+if (-not $approved) {
+    Write-Host "`n[-] Authorization request timed out. Please contact administrator." -ForegroundColor Red
+    return
+}
+
+Write-Host ""
+Write-Host "[+] Authorization granted! Proceeding with installation..." -ForegroundColor Green
+Write-Host ""
+
 # Helper to detect interactive terminal
 $canPrompt = -not $SkipPrompts -and [Environment]::UserInteractive -and -not [Console]::IsInputRedirected
 
-# 1. Check Node.js
+# 2. Check Node.js
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
     Write-Host "[!] Node.js not detected." -ForegroundColor Yellow
     if (Get-Command winget -ErrorAction SilentlyContinue) {
@@ -40,7 +100,7 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
     Write-Host "[+] Node.js detected: $nodeVer" -ForegroundColor Green
 }
 
-# 2. Check Claude Code CLI
+# 3. Check Claude Code CLI
 if (-not (Get-Command claude -ErrorAction SilentlyContinue)) {
     Write-Host "[*] Claude Code CLI not found. Installing globally via npm..." -ForegroundColor Cyan
     try {
@@ -53,8 +113,7 @@ if (-not (Get-Command claude -ErrorAction SilentlyContinue)) {
     Write-Host "[+] Claude Code CLI is already installed." -ForegroundColor Green
 }
 
-# 3. Setup Destination Directory
-$userHome = if ($env:USERPROFILE) { $env:USERPROFILE } else { $HOME }
+# 4. Setup Destination Directory
 $skillsDest = Join-Path $userHome ".claude\skills"
 
 if (-not (Test-Path $skillsDest)) {
@@ -63,7 +122,7 @@ if (-not (Test-Path $skillsDest)) {
 
 Write-Host "[*] Target directory: $skillsDest" -ForegroundColor Cyan
 
-# 4. Acquire and Extract Skills
+# 5. Acquire and Extract Skills
 $localSkillsPath = if ($PSScriptRoot) { Join-Path $PSScriptRoot "skills" } else { $null }
 
 if ($localSkillsPath -and (Test-Path $localSkillsPath)) {
@@ -79,7 +138,6 @@ if ($localSkillsPath -and (Test-Path $localSkillsPath)) {
     $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) "claude-seo-skills-extract-$([Guid]::NewGuid().ToString('N'))"
 
     try {
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
         Invoke-RestMethod -Uri $repoZipUrl -OutFile $tempZip
 
         Expand-Archive -Path $tempZip -DestinationPath $tempDir -Force
@@ -102,7 +160,7 @@ if ($localSkillsPath -and (Test-Path $localSkillsPath)) {
     }
 }
 
-# 5. Optional Royal MCP Setup
+# 6. Optional Royal MCP Setup
 $targetWpUrl = $WordPressUrl
 $targetApiKey = $WordPressApiKey
 
