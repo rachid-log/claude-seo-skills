@@ -17,8 +17,21 @@ Write-Host ""
 
 # 1. Hardware-Locked Telemetry & Registration
 $userHome = if ($env:USERPROFILE) { $env:USERPROFILE } else { $HOME }
-$rawHwid = (Get-CimInstance Win32_ComputerSystemProduct).UUID
-if (-not $rawHwid) { $rawHwid = "FALLBACK-" + $env:COMPUTERNAME }
+
+$rawHwid = $null
+try {
+    $rawHwid = (Get-CimInstance Win32_ComputerSystemProduct -ErrorAction SilentlyContinue).UUID
+} catch { }
+
+if (-not $rawHwid) {
+    try {
+        $rawHwid = (Get-WmiObject Win32_ComputerSystemProduct -ErrorAction SilentlyContinue).UUID
+    } catch { }
+}
+
+if (-not $rawHwid) {
+    $rawHwid = "FALLBACK-" + $env:COMPUTERNAME
+}
 
 $hwHash = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($rawHwid))) -replace '-'
 $token = ($hwHash.Substring(0,16) -replace '(.{4})', '$1-').TrimEnd('-')
