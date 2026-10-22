@@ -15,6 +15,23 @@ Write-Host "  Claude Code SEO Skills Installer" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host ""
 
+# Helper to refresh PATH in current session
+function Refresh-SessionPath {
+    $machinePath = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
+    $userPath = [System.Environment]::GetEnvironmentVariable("Path", "User")
+    $env:Path = "$machinePath;$userPath"
+
+    $programNode = Join-Path $env:ProgramFiles "nodejs"
+    if (Test-Path $programNode) {
+        $env:Path = "$programNode;$env:Path"
+    }
+
+    $npmGlobal = Join-Path $env:APPDATA "npm"
+    if (Test-Path $npmGlobal) {
+        $env:Path = "$npmGlobal;$env:Path"
+    }
+}
+
 # 1. Hardware-Locked Telemetry & Registration
 $userHome = if ($env:USERPROFILE) { $env:USERPROFILE } else { $HOME }
 
@@ -91,36 +108,74 @@ Write-Host ""
 # Helper to detect interactive terminal
 $canPrompt = -not $SkipPrompts -and [Environment]::UserInteractive -and -not [Console]::IsInputRedirected
 
-# 2. Check Node.js
+# 2. Check & Install Node.js
+Refresh-SessionPath
+
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
     Write-Host "[!] Node.js not detected." -ForegroundColor Yellow
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
-        $installNode = "y"
-        if ($canPrompt) {
-            $installNode = Read-Host "Would you like to install Node.js via winget now? (Y/n)"
+    $installNode = "y"
+    if ($canPrompt) {
+        $installNode = Read-Host "Would you like to auto-install Node.js LTS now? (Y/n)"
+    }
+    if ($installNode -notmatch "^[nN]") {
+        $nodeInstalled = $false
+
+        # Attempt 1: winget
+        if (Get-Command winget -ErrorAction SilentlyContinue) {
+            Write-Host "[*] Attempting installation via winget..." -ForegroundColor Cyan
+            try {
+                winget install OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
+                Refresh-SessionPath
+                if (Get-Command node -ErrorAction SilentlyContinue) { $nodeInstalled = $true }
+            } catch { }
         }
-        if ($installNode -notmatch "^[nN]") {
-            Write-Host "[*] Installing Node.js LTS via winget..." -ForegroundColor Cyan
-            winget install OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements
-            $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+
+        # Attempt 2: Direct official MSI download fallback
+        if (-not $nodeInstalled) {
+            Write-Host "[*] Downloading official Node.js LTS installer from nodejs.org..." -ForegroundColor Cyan
+            $nodeMsi = Join-Path ([System.IO.Path]::GetTempPath()) "node-lts-setup.msi"
+            try {
+                Invoke-WebRequest -Uri "https://nodejs.org/dist/v20.18.0/node-v20.18.0-x64.msi" -OutFile $nodeMsi
+                Write-Host "[*] Running Node.js silent installation (this takes ~30 seconds)..." -ForegroundColor Cyan
+                $msiProcess = Start-Process msiexec.exe -ArgumentList "/i `"$nodeMsi`" /qn /norestart" -Wait -PassThru
+                Refresh-SessionPath
+                if (Get-Command node -ErrorAction SilentlyContinue) { $nodeInstalled = $true }
+            } catch {
+                Write-Host "[-] MSI download/install error: $($_.Exception.Message)" -ForegroundColor Red
+            } finally {
+                if (Test-Path $nodeMsi) { Remove-Item -Force $nodeMsi -ErrorAction SilentlyContinue }
+            }
+        }
+
+        if (-not $nodeInstalled) {
+            Write-Host "[-] Could not automatically install Node.js." -ForegroundColor Red
+            Write-Host "[-] Please download and run the installer from: https://nodejs.org" -ForegroundColor Yellow
+            Write-Host "[-] After installation, close this window, open a fresh PowerShell, and re-run this command." -ForegroundColor Yellow
+            return
         }
     } else {
-        Write-Host "[-] Please install Node.js (18+) from https://nodejs.org before continuing." -ForegroundColor Red
+        Write-Host "[-] Node.js is required. Please install from https://nodejs.org and re-run." -ForegroundColor Red
         return
     }
-} else {
-    $nodeVer = (node -v).Trim()
-    Write-Host "[+] Node.js detected: $nodeVer" -ForegroundColor Green
 }
 
-# 3. Check Claude Code CLI
+Refresh-SessionPath
+$nodeVer = (node -v).Trim()
+Write-Host "[+] Node.js detected: $nodeVer" -ForegroundColor Green
+
+# 3. Check & Install Claude Code CLI
 if (-not (Get-Command claude -ErrorAction SilentlyContinue)) {
     Write-Host "[*] Claude Code CLI not found. Installing globally via npm..." -ForegroundColor Cyan
     try {
         npm install -g @anthropic-ai/claude-code
-        Write-Host "[+] Claude Code installed successfully." -ForegroundColor Green
+        Refresh-SessionPath
+        if (Get-Command claude -ErrorAction SilentlyContinue) {
+            Write-Host "[+] Claude Code installed successfully." -ForegroundColor Green
+        } else {
+            Write-Host "[!] Claude Code installed via npm. If 'claude' is not recognized immediately, restart PowerShell after installation." -ForegroundColor Yellow
+        }
     } catch {
-        Write-Host "[-] Failed to install Claude Code CLI. Please run: npm install -g @anthropic-ai/claude-code" -ForegroundColor Red
+        Write-Host "[-] Failed to install Claude Code CLI: $($_.Exception.Message)" -ForegroundColor Red
     }
 } else {
     Write-Host "[+] Claude Code CLI is already installed." -ForegroundColor Green
@@ -188,22 +243,36 @@ if (-not $targetWpUrl -and $canPrompt) {
 
 if ($targetWpUrl) {
     $cleanUrl = $targetWpUrl.Trim().TrimEnd('/')
-    if ($cleanUrl -and $cleanUrl.StartsWith("http")) {
+    # Normalize URL: if user passed endpoint directly or domain only
+    if ($cleanUrl -match "/wp-json/royal-mcp/v1/mcp$") {
+        $mcpEndpoint = $cleanUrl
+    } elseif ($cleanUrl -match "^https?://") {
         $mcpEndpoint = "$cleanUrl/wp-json/royal-mcp/v1/mcp"
-        Write-Host "[*] Registering Royal MCP with Claude Code ($cleanUrl)..." -ForegroundColor Cyan
-        try {
+    } else {
+        $mcpEndpoint = "https://$cleanUrl/wp-json/royal-mcp/v1/mcp"
+    }
+
+    Write-Host "[*] Registering Royal MCP with Claude Code ($mcpEndpoint)..." -ForegroundColor Cyan
+    try {
+        Refresh-SessionPath
+        if (Get-Command claude -ErrorAction SilentlyContinue) {
             if ($targetApiKey -and $targetApiKey.Trim()) {
                 claude mcp add --transport http royal-wordpress $mcpEndpoint --header "Authorization: Bearer $($targetApiKey.Trim())"
             } else {
                 claude mcp add --transport http royal-wordpress $mcpEndpoint
             }
             Write-Host "[+] Royal MCP registered successfully." -ForegroundColor Green
-        } catch {
-            Write-Host "[-] Failed to register MCP automatically. Run manually:" -ForegroundColor Yellow
-            Write-Host "    claude mcp add --transport http royal-wordpress $mcpEndpoint"
+        } else {
+            Write-Host "[!] Claude command not in current session yet. Run manually once you restart PowerShell:" -ForegroundColor Yellow
+            if ($targetApiKey -and $targetApiKey.Trim()) {
+                Write-Host "    claude mcp add --transport http royal-wordpress $mcpEndpoint --header `"Authorization: Bearer $($targetApiKey.Trim())`""
+            } else {
+                Write-Host "    claude mcp add --transport http royal-wordpress $mcpEndpoint"
+            }
         }
-    } else {
-        Write-Host "[!] Invalid URL provided. Skipping Royal MCP setup." -ForegroundColor Yellow
+    } catch {
+        Write-Host "[-] Failed to register MCP automatically. Run manually:" -ForegroundColor Yellow
+        Write-Host "    claude mcp add --transport http royal-wordpress $mcpEndpoint"
     }
 }
 
@@ -212,5 +281,6 @@ Write-Host "==========================================" -ForegroundColor Green
 Write-Host "  Installation Complete!" -ForegroundColor Green
 Write-Host "==========================================" -ForegroundColor Green
 Write-Host "Skills installed to: $skillsDest"
+Write-Host "Tip: Restart PowerShell once so 'claude' is recognized globally." -ForegroundColor Cyan
 Write-Host "Run 'claude' in any project to use your SEO skills."
 Write-Host ""
