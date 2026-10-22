@@ -49,7 +49,7 @@ try {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
     $reqRes = Invoke-RestMethod -Uri $requestUrl -Method GET
 } catch {
-    Write-Host "[-] Unable to contact license server. Please verify your internet connection." -ForegroundColor Red
+    Write-Host "[-] Unable to contact license server: $($_.Exception.Message)" -ForegroundColor Red
     return
 }
 
